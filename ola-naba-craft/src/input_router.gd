@@ -214,16 +214,16 @@ func read(i: int, delta: float) -> Dictionary:
 	return {"held": held, "move": move.limit_length(1.0), "look": look, "wheel": wheel, "nav": nav}
 
 # Human-readable name of the first binding for an action on a player's main device.
-func glyph(i: int, action: String) -> String:
+func glyph(i: int, action: String, keys_only := false) -> String:
 	if i < 0 or i >= slots.size():
 		return action
 	var s: Slot = slots[i]
 	if s.pad >= 0 and bindings.pad.has(action):
 		return pad_name(bindings.pad[action][0])
 	if s.kb != "" and bindings[s.kb].has(action):
-		if s.mouse and action == "mine":
+		if s.mouse and action == "mine" and not keys_only:
 			return "Left click"
-		if s.mouse and action == "place":
+		if s.mouse and action == "place" and not keys_only:
 			return "Right click"
 		return OS.get_keycode_string(int(bindings[s.kb][action][0]))
 	return action

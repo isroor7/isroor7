@@ -277,7 +277,7 @@ func _draw() -> void:
 
 func _g(action: String) -> String:
 	if game and game.get("router"):
-		return game.router.glyph(player.player_number, action)
+		return game.router.glyph(player.player_number, action, true)
 	return action
 
 func _gui_input(event: InputEvent) -> void:

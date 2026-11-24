@@ -62,6 +62,9 @@ var loading_time := 0.0
 var autosave := 0.0
 var world_spawn := Vector3.ZERO
 var keep_assignment := false
+var perf_label: Label      # F3: frame-time overlay for checking performance on real hardware
+var perf_samples := PackedFloat32Array()
+var perf_clock := 0.0
 var input_override := {}   # tests: player index -> scripted input used instead of devices
 var status := ""
 
@@ -76,7 +79,55 @@ func _ready() -> void:
 	ui = Menus.new(self)
 	Input.joy_connection_changed.connect(_on_joy_connection)
 	Settings.apply_video(settings)
+	if "--self-test" in OS.get_cmdline_user_args():
+		_self_test.call_deferred()
+		return
 	ui.title()
+
+# Launch check for exported builds:  <game> -- --self-test
+# Plays a throwaway split-screen Survival world (stored apart from real saves) for a few seconds,
+# prints frame times and exits 0 on success, 1 on failure.
+func _self_test() -> void:
+	saves = Saves.new("user://self-test-worlds", ["user://self-test-none.json"])
+	var ok := true
+	start_game(true, false, 0, false)
+	var t := 0.0
+	while loading and t < 60.0:
+		await get_tree().process_frame
+		t += get_process_delta_time()
+	ok = ok and not loading and players.size() == 2
+	var samples := PackedFloat32Array()
+	var start_pos: Vector3 = players[0].position
+	input_override[0] = {"held": {"jump": true}, "move": Vector2(0, -1), "look": Vector2(0.01, 0), "wheel": 0, "nav": Vector2i.ZERO}
+	t = 0.0
+	while t < 5.0:
+		await get_tree().process_frame
+		var d := get_process_delta_time()
+		samples.append(d * 1000.0)
+		t += d
+	input_override.clear()
+	var problems := []
+	if not ok:
+		problems.append("world did not finish loading")
+	if players[0].position.distance_to(start_pos) < 0.05:
+		problems.append("player did not move")
+	if map.chunks.size() <= 20:
+		problems.append("too few chunks")
+	if not save_world():
+		problems.append("save failed")
+	ok = problems.is_empty()
+	if not ok:
+		print("SELF-TEST problems: ", ", ".join(problems))
+	samples.sort()
+	var avg := 0.0
+	for v in samples:
+		avg += v
+	avg /= maxi(1, samples.size())
+	print("SELF-TEST %s: %d chunks, avg %.1f ms, p95 %.1f ms, %s, %s" % ["PASS" if ok else "FAIL", map.chunks.size(), avg,
+		samples[int(samples.size() * 0.95)] if samples.size() > 0 else 0.0, RenderingServer.get_video_adapter_name(), OS.get_name()])
+	saves.delete(world_id)
+	end_session()
+	get_tree().quit(0 if ok else 1)
 
 # ------------------------------------------------------------------ sessions
 
@@ -162,6 +213,12 @@ func start_session(id: String, data: Dictionary, split: bool, top_bottom: bool, 
 	loading_label.add_theme_font_size_override("font_size", 28)
 	loading_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	display.add_child(loading_label)
+	perf_label = Label.new()
+	perf_label.add_theme_font_size_override("font_size", 14)
+	perf_label.add_theme_constant_override("outline_size", 4)
+	perf_label.position = Vector2(8, 4)
+	perf_label.visible = false
+	display.add_child(perf_label)
 	loading = true
 	loading_time = 0.0
 	if data.get("restored_from_backup", false):
@@ -359,9 +416,25 @@ func _physics_process(delta: float) -> void:
 		autosave = 0.0
 		save_world()
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if not session_active():
 		return
+	if perf_label and perf_label.visible:
+		perf_samples.append(delta * 1000.0)
+		perf_clock += delta
+		if perf_clock >= 0.5:
+			var sorted := perf_samples.duplicate()
+			sorted.sort()
+			var avg := 0.0
+			for v in perf_samples:
+				avg += v
+			avg /= perf_samples.size()
+			perf_label.text = "%.0f fps · avg %.1f ms · 95%% %.1f ms · max %.1f ms · %dx%d · %d chunks · %s" % [
+				1000.0 / avg, avg, sorted[int(sorted.size() * 0.95)], sorted[sorted.size() - 1],
+				get_viewport().get_visible_rect().size.x, get_viewport().get_visible_rect().size.y, map.chunks.size(),
+				RenderingServer.get_video_adapter_name()]
+			perf_samples.clear()
+			perf_clock = 0.0
 	for i in players.size():
 		var p = players[i]
 		var hl: MeshInstance3D = highlights[i]
@@ -413,6 +486,9 @@ func _input(event: InputEvent) -> void:
 			else:
 				set_pause(not pause_open)
 			get_viewport().set_input_as_handled()
+	elif event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_F3:
+		perf_label.visible = not perf_label.visible
+		perf_samples.clear()
 	elif event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_ESCAPE:
 		if not pause_open and inv_uis.size() > 0 and inv_uis[0].visible:
 			close_inventory(0)

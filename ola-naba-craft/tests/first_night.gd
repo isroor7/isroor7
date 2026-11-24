@@ -127,11 +127,17 @@ func run() -> void:
 	var timber: int = ola.inventory.count("timber")
 	check(timber >= 2, "collected timber (%d)" % timber)
 	# 3. craft planks, sticks and a wood pick: exact inputs consumed
+	# leaves broken on the way may have dropped bonus sticks or berries, so compare before/after
+	var planks0: int = ola.inventory.count("planks")
 	check(ola.craft("planks") and ola.craft("planks"), "two batches of planks")
-	check(ola.inventory.count("planks") == 8 and ola.inventory.count("timber") == timber - 2, "planks consumed timber")
+	check(ola.inventory.count("planks") == planks0 + 8 and ola.inventory.count("timber") == timber - 2, "2 timber became 8 planks")
+	var sticks0: int = ola.inventory.count("stick")
 	check(ola.craft("stick"), "sticks")
+	check(ola.inventory.count("stick") == sticks0 + 4 and ola.inventory.count("planks") == planks0 + 6, "2 planks became 4 sticks")
+	var p1: int = ola.inventory.count("planks")
+	var s1: int = ola.inventory.count("stick")
 	check(ola.craft("wood_pick"), "wood pick")
-	check(ola.inventory.count("planks") == 3 and ola.inventory.count("stick") == 2 and ola.inventory.count("wood_pick") == 1, "pick took 3 planks + 2 sticks")
+	check(ola.inventory.count("planks") == p1 - 3 and ola.inventory.count("stick") == s1 - 2 and ola.inventory.count("wood_pick") == 1, "pick took exactly 3 planks + 2 sticks")
 	# 4. dig straight down with the pick until slate
 	ola.position = map.find_safe_spot(ola.position + Vector3(3, 0, 3), 6)
 	await frames(30)
@@ -185,7 +191,9 @@ func run() -> void:
 	check(ola.tutorial_step >= 4, "tutorial reached the shelter step (step %d)" % (ola.tutorial_step + 1))
 	# 6. Naba waits outside in the open
 	naba.position = map.find_safe_spot(Vector3(trunk) + Vector3(-12, 0, 8), 8)
-	# 7. the night, sped up
+	# 7. the night, sped up. Creature spawning is seeded so the run is repeatable; one Gloomling
+	# is placed near Naba at nightfall so the outdoor danger is checked every run.
+	game.mobs.rng.seed = 4242
 	game.time = game.DUSK - 5.0
 	Engine.time_scale = 6.0
 	var start_day: int = game.day_number()
@@ -194,8 +202,12 @@ func run() -> void:
 	var naba_min := 20
 	var ola_min := 20
 	var t := 0.0
+	var placed_near_naba := false
 	while game.time < morning:
 		await physics_frame
+		if not placed_near_naba and game.is_night():
+			placed_near_naba = true
+			game.mobs.spawn("gloomling", naba.position + Vector3(1.6, 0.2, 0))
 		t += 1.0 / 60.0
 		max_gloom = maxi(max_gloom, game.mobs.mobs.filter(func(m): return m.kind == "gloomling").size())
 		naba_min = mini(naba_min, naba.health)

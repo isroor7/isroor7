@@ -53,7 +53,7 @@ func run() -> void:
 	game = H.make_game(self, "accept")
 	for t in ["four_combos", "input_isolation", "gamepad_scoping", "shared_world_and_costs", "concurrent_mutation",
 			"identity_persistence", "devices", "creative_isolation", "placement_safety", "respawn_and_bundle",
-			"crafting_rules", "chunk_union", "saves_robustness", "v1_import"]:
+			"crafting_rules", "local_ui_pause", "remap_and_invert", "flight_collision", "chunk_union", "saves_robustness", "v1_import"]:
 		var before := failures
 		await call("t_" + t)
 		print("%s %s" % ["ok  " if failures == before else "FAIL", t])
@@ -364,6 +364,79 @@ func t_crafting_rules() -> void:
 	a.inventory.add("planks", 7)
 	a.hotbar = 0
 	check(a.selected_key() == String(a.inventory.get_slot(0).id), "hotbar shows the inventory's first row")
+	await stop()
+
+# An open inventory stops only its owner; the world and the other player keep going.
+# Holding Mine while the screen is open never edits the world.
+func t_local_ui_pause() -> void:
+	await start(true, false)
+	var a = game.players[0]
+	var b = game.players[1]
+	game.toggle_inventory(a, false)
+	check(a.ui_open and game.inv_uis[0].visible and not game.inv_uis[1].visible, "P1's inventory opens in P1's pane only")
+	var pa: Vector3 = a.position
+	var pb: Vector3 = b.position
+	var t0: float = game.time
+	key(KEY_W, true)
+	key(KEY_I, true)
+	await create_timer(0.3).timeout
+	key(KEY_W, false)
+	key(KEY_I, false)
+	await frames(3)
+	check(a.position.distance_to(pa) < 0.05, "P1 does not walk while their inventory is open")
+	check(b.position.distance_to(pb) > 0.3, "P2 keeps playing")
+	check(game.time > t0, "the world clock keeps running (not a global pause)")
+	a.update_target()
+	var cell = a.target.get("cell")
+	game.input_override[0] = {"held": {"mine": true}, "move": Vector2.ZERO, "look": Vector2.ZERO, "wheel": 0, "nav": Vector2i.ZERO}
+	await frames(240)
+	game.input_override.clear()
+	check(cell == null or game.map.get_blockv(cell) != B.AIR, "holding Mine with the inventory open edits nothing")
+	game.close_inventory(0)
+	check(not a.ui_open, "inventory closes")
+	await stop()
+
+# Remapped keys take effect, and invert-Y flips only that player's vertical look.
+func t_remap_and_invert() -> void:
+	game.settings.bindings = {"kb2": {"forward": [KEY_U]}}
+	game.settings.players[1].invert_y = true
+	await start(true, false)
+	var b = game.players[1]
+	var pb: Vector3 = b.position
+	key(KEY_U, true)
+	await create_timer(0.3).timeout
+	key(KEY_U, false)
+	await frames(3)
+	check(b.position.distance_to(pb) > 0.3, "remapped key (U) walks P2 forward")
+	var pitch_b: float = b.pitch
+	var pitch_a: float = game.players[0].pitch
+	key(KEY_UP, true)
+	await create_timer(0.2).timeout
+	key(KEY_UP, false)
+	await frames(3)
+	check(b.pitch < pitch_b, "inverted: up arrow tilts P2's view down")
+	check(absf(game.players[0].pitch - pitch_a) < 0.0001, "P1's view unaffected")
+	game.settings.bindings = {}
+	game.settings.players[1].invert_y = false
+	game.router.reset_bindings()
+	await stop()
+
+# Creative flight collides with blocks instead of passing through them.
+func t_flight_collision() -> void:
+	await start(false, true)
+	var a = game.players[0]
+	a.flying = true
+	var c := Vector3i(floori(a.position.x), floori(a.position.y) + 3, floori(a.position.z))
+	for y in range(0, 5):
+		for z in range(-2, 3):
+			game.map.set_block(c.x - 3, c.y - 2 + y, c.z + z, B.SLATE)
+	a.position = Vector3(c) + Vector3(0.5, 0, 0.5)
+	a.yaw = PI / 2   # facing -X, toward the wall
+	game.input_override[0] = {"held": {}, "move": Vector2(0, -1), "look": Vector2.ZERO, "wheel": 0, "nav": Vector2i.ZERO}
+	await frames(120)
+	game.input_override.clear()
+	check(a.position.x > c.x - 2 + 0.25, "flying into a wall stops at the wall (x=%.2f)" % a.position.x)
+	check(not game.map.box_hits(a.position - Vector3(0.3, 0, 0.3), a.position + Vector3(0.3, 1.8, 0.3)), "never inside a block")
 	await stop()
 
 # Chunks around both players stay loaded even when they walk far apart.
