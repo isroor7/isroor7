@@ -1,0 +1,7 @@
+.godot/
+build/
+.DS_Store
+# Private reference photos: never commit or ship
+assets/references/*.jpeg
+assets/references/*.jpg
+assets/references/*.png
