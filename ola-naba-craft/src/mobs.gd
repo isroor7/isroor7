@@ -5,10 +5,10 @@ extends Node3D
 const VM := preload("res://src/voxel_model.gd")
 const B := preload("res://src/blocks.gd")
 const KINDS := {
-	"gloomling": {"hw": 0.36, "h": 1.15, "hp": 10, "speed": 3.1, "damage": 3},
+	"gloomling": {"hw": 0.36, "h": 1.15, "hp": 10, "speed": 3.1, "damage": 2},
 	"puffkin": {"hw": 0.3, "h": 0.72, "hp": 4, "speed": 1.5, "damage": 0},
 }
-const MAX_GLOOM_PER_PLAYER := 5
+const MAX_GLOOM_PER_PLAYER := 4
 const MAX_PUFF_PER_PLAYER := 3
 
 var world: Node
@@ -151,7 +151,7 @@ func _update(m: Dictionary, delta: float, players: Array, daylight: float, creat
 	var speed: float = info.speed
 	if m.kind == "gloomling":
 		var sky: float = world.sky_light(pos + Vector3(0, 0.6, 0))
-		if (daylight > 0.45 and sky > 0.6) or creative:
+		if (daylight > 0.45 and sky > 0.6) or daylight > 0.8 or creative:
 			m.fade += delta
 			if m.fade > 1.2:
 				if game and game.get("audio"):

@@ -421,6 +421,10 @@ func wait_all() -> void:
 		pending_mesh.erase(key)
 		_finish_mesh(key, entry[1])
 
+# Never leave worker tasks running when the world goes away (quitting mid-load would hang).
+func _exit_tree() -> void:
+	shutdown()
+
 func shutdown() -> void:
 	for key in pending_gen.keys():
 		WorkerThreadPool.wait_for_task_completion(pending_gen[key][0])

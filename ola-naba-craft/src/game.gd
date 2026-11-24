@@ -62,6 +62,7 @@ var loading_time := 0.0
 var autosave := 0.0
 var world_spawn := Vector3.ZERO
 var keep_assignment := false
+var input_override := {}   # tests: player index -> scripted input used instead of devices
 var status := ""
 
 func _ready() -> void:
@@ -339,7 +340,7 @@ func _physics_process(delta: float) -> void:
 		return
 	for i in players.size():
 		var p = players[i]
-		var inp: Dictionary = router.read(i, delta)
+		var inp: Dictionary = input_override[i] if input_override.has(i) else router.read(i, delta)
 		if p.resting and ((inp.move as Vector2).length() > 0.2 or inp.held.get("jump", false)):
 			p.resting = false
 		if inv_uis[i].visible:
@@ -508,8 +509,9 @@ func on_player_fainted(p: Node, kind: String) -> void:
 func phase() -> float:
 	return fposmod(time, DAY_LENGTH)
 
+# A new day begins at sunrise (dawn), so "Day 2" starts when the first night ends.
 func day_number() -> int:
-	return int(time / DAY_LENGTH) + 1
+	return int((time + (DAY_LENGTH - DAWN - 15.0)) / DAY_LENGTH) + 1
 
 func is_night() -> bool:
 	var t := phase()
@@ -550,7 +552,7 @@ func _advance_time(delta: float) -> void:
 		audio.play("dawn")
 		for p in players:
 			p.stats.nights += 1
-			p.say("Morning of day %d. You made it through the night!" % (day_number() + (1 if now > DAWN else 0)), 5.0)
+			p.say("Day %d. You made it through the night!" % day_number(), 5.0)
 	daylight = daylight_at(now)
 	_update_sky()
 
@@ -601,17 +603,17 @@ func try_rest(p: Node) -> void:
 func tutorial_steps(creative: bool) -> Array:
 	if creative:
 		return [
-			{"text": "Choose any block", "hint": "Open %inventory% → Palette, then %jump% puts it in your hotbar", "done": func(p): p.stats.get("palette", 0) > 0 or p.stats.placed > 0},
-			{"text": "Build something", "hint": "%place% places a block, %mine% removes one", "done": func(p): p.stats.placed >= 5},
-			{"text": "Take off", "hint": "Double-tap %jump% to fly, hold %down% to descend", "done": func(p): p.flying},
+			{"text": "Choose any block", "hint": "Open %inventory% → Palette, then %jump% puts it in your hotbar", "done": func(p): return p.stats.get("palette", 0) > 0 or p.stats.placed > 0},
+			{"text": "Build something", "hint": "%place% places a block, %mine% removes one", "done": func(p): return p.stats.placed >= 5},
+			{"text": "Take off", "hint": "Double-tap %jump% to fly, hold %down% to descend", "done": func(p): return p.flying},
 		]
 	return [
-		{"text": "Collect Timber", "hint": "Hold %mine% on a tree trunk until it breaks", "done": func(p): p.inventory.count("timber") > 0 or p.inventory.count("planks") > 0},
-		{"text": "Make Planks", "hint": "Open %inventory% → Crafting → Planks, then %jump%", "done": func(p): p.inventory.count("planks") > 0 or p.inventory.count("wood_pick") > 0},
-		{"text": "Craft a Wood Pick", "hint": "Make Sticks first; a pick is 3 Planks + 2 Sticks", "done": func(p): p.inventory.count("wood_pick") > 0 or p.inventory.count("slate") > 0},
-		{"text": "Mine some Slate", "hint": "Grey stone below the soil: hold %mine% with the pick selected", "done": func(p): p.inventory.count("slate") > 0},
-		{"text": "Build a shelter before dark", "hint": "Walls and a roof (%place%). Embers from ore make lanterns", "done": func(p): is_night() or map.sky_light(p.head()) < 0.6},
-		{"text": "Survive the first night", "hint": "Stay safe until sunrise. Berries from leaves fill you up", "done": func(p): p.stats.nights >= 1},
+		{"text": "Collect Timber", "hint": "Hold %mine% on a tree trunk until it breaks", "done": func(p): return p.inventory.count("timber") > 0 or p.inventory.count("planks") > 0},
+		{"text": "Make Planks", "hint": "Open %inventory% → Crafting → Planks, then %jump%", "done": func(p): return p.inventory.count("planks") > 0 or p.inventory.count("wood_pick") > 0},
+		{"text": "Craft a Wood Pick", "hint": "Make Sticks first; a pick is 3 Planks + 2 Sticks", "done": func(p): return p.inventory.count("wood_pick") > 0 or p.inventory.count("slate") > 0},
+		{"text": "Mine some Slate", "hint": "Grey stone below the soil: hold %mine% with the pick selected", "done": func(p): return p.inventory.count("slate") > 0},
+		{"text": "Build a shelter before dark", "hint": "Walls and a roof (%place%). Embers from ore make lanterns", "done": func(p): return is_night() or map.sky_light(p.head()) < 0.95},
+		{"text": "Survive the first night", "hint": "Stay safe until sunrise. Berries from leaves fill you up", "done": func(p): return p.stats.nights >= 1},
 	]
 
 func _tutorials() -> void:
